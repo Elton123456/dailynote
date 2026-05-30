@@ -945,3 +945,35 @@ body::after {
     from { width: 0; }
     to { width: 100%; }
 }
+
+/* Fullscreen mode customization for visualizer */
+.canvas-container:fullscreen {
+    border-radius: 0 !important;
+    border: none !important;
+    background: var(--bg-darker) !important;
+}
+
+.canvas-container:-webkit-full-screen {
+    border-radius: 0 !important;
+    border: none !important;
+    background: var(--bg-darker) !important;
+}
+
+.canvas-container:-moz-full-screen {
+    border-radius: 0 !important;
+    border: none !important;
+    background: var(--bg-darker) !important;
+}
+
+.canvas-container:-ms-fullscreen {
+    border-radius: 0 !important;
+    border: none !important;
+    background: var(--bg-darker) !important;
+}
+
+/* Ensure canvas takes entire viewport when fullscreen */
+.canvas-container:fullscreen #particle-canvas {
+    width: 100vw !important;
+    height: 100vh !important;
+}
+

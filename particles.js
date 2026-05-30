@@ -21,6 +21,7 @@ class ParticleEngine {
         // Disperse and Restore baseline states
         this.isDispersed = false;
         this.isSpaceshipActive = false;
+        this.isMorphActive = false;
         this.baselinePositions = null;
         this.baselineColors = null;
         
@@ -72,7 +73,7 @@ class ParticleEngine {
             alpha: true,
             powerPreference: "high-performance"
         });
-        this.renderer.setSize(width, height);
+        this.renderer.setSize(width, height, false);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
         // 4. Controls Setup
@@ -147,7 +148,12 @@ class ParticleEngine {
         this.generateDefaultSphere();
 
         // 9. Event Listeners
-        window.addEventListener('resize', () => this.onWindowResize());
+        if (window.ResizeObserver) {
+            this.resizeObserver = new ResizeObserver(() => this.onWindowResize());
+            this.resizeObserver.observe(this.container);
+        } else {
+            window.addEventListener('resize', () => this.onWindowResize());
+        }
         window.addEventListener('mousemove', (e) => this.onMouseMove(e));
         window.addEventListener('mouseleave', () => this.onMouseLeave());
         
@@ -418,8 +424,9 @@ class ParticleEngine {
         });
     }
 
-    triggerMorphAnimation() {
+    triggerMorphAnimation(isDispersingOrRestoring = false) {
         return new Promise((resolve) => {
+            this.isMorphActive = true;
             // Capture the current positions and colors as the starting point for the morph
             for (let i = 0; i < this.maxParticles * 3; i++) {
                 this.sourcePositions[i] = this.currentPositions[i];
@@ -431,17 +438,19 @@ class ParticleEngine {
             
             // Stop spin controls during main transition for wow factor
             const wasSpinning = this.spinEnabled;
-            this.spinEnabled = false;
-            
-            // Animate camera rotation slightly to reveal 3D effect
-            gsap.killTweensOf(this.camera.position);
-            gsap.to(this.camera.position, {
-                x: 10,
-                y: 5,
-                z: 75,
-                duration: 2.2,
-                ease: "power2.out"
-            });
+            if (!isDispersingOrRestoring) {
+                this.spinEnabled = false;
+                
+                // Animate camera rotation slightly to reveal 3D effect
+                gsap.killTweensOf(this.camera.position);
+                gsap.to(this.camera.position, {
+                    x: 10,
+                    y: 5,
+                    z: 75,
+                    duration: 2.2,
+                    ease: "power2.out"
+                });
+            }
 
             // Compute Y and X bounds of target coordinates for staggering (sand falling with wave edges)
             let minY = Infinity, maxY = -Infinity;
@@ -502,6 +511,18 @@ class ParticleEngine {
                         const easePI = pI * pI * (3.0 - 2.0 * pI);
                         const invPI = 1.0 - easePI;
                         
+                        if (isDispersingOrRestoring) {
+                            // Simple smooth step translation
+                            this.currentPositions[idx] = xSource * invPI + xTarget * easePI;
+                            this.currentPositions[idx + 1] = ySource * invPI + yTarget * easePI;
+                            this.currentPositions[idx + 2] = zSource * invPI + zTarget * easePI;
+                            
+                            this.currentColors[idx] = this.sourceColors[idx] * invPI + this.targetColors[idx] * easePI;
+                            this.currentColors[idx + 1] = this.sourceColors[idx + 1] * invPI + this.targetColors[idx + 1] * easePI;
+                            this.currentColors[idx + 2] = this.sourceColors[idx + 2] * invPI + this.targetColors[idx + 2] * easePI;
+                            continue;
+                        }
+                        
                         // Polar representation around Y-axis for swirling vortex swirl
                         const rS = Math.sqrt(xSource * xSource + zSource * zSource) || 1;
                         const thetaS = Math.atan2(zSource, xSource);
@@ -560,26 +581,35 @@ class ParticleEngine {
                 onComplete: () => {
                     this.spinEnabled = wasSpinning;
                     console.log("Vortex double-helix morph completed.");
-                    // Animate camera and group back to front-facing position
-                    gsap.to(this.camera.position, {
-                        x: 0,
-                        y: 0,
-                        z: 80,
-                        duration: 1.2,
-                        ease: "power2.out"
-                    });
-                    gsap.to(this.group.rotation, {
-                        x: 0,
-                        y: 0,
-                        z: 0,
-                        duration: 1.2,
-                        ease: "power2.out",
-                        onUpdate: () => {
-                            this.controls.target.set(0, 0, 0);
-                            this.controls.update();
-                        }
-                    });
-                    resolve();
+                    
+                    if (!isDispersingOrRestoring) {
+                        // Animate camera and group back to front-facing position
+                        gsap.to(this.camera.position, {
+                            x: 0,
+                            y: 0,
+                            z: 80,
+                            duration: 1.2,
+                            ease: "power2.out"
+                        });
+                        gsap.to(this.group.rotation, {
+                            x: 0,
+                            y: 0,
+                            z: 0,
+                            duration: 1.2,
+                            ease: "power2.out",
+                            onUpdate: () => {
+                                this.controls.target.set(0, 0, 0);
+                                this.controls.update();
+                            },
+                            onComplete: () => {
+                                this.isMorphActive = false;
+                                resolve();
+                            }
+                        });
+                    } else {
+                        this.isMorphActive = false;
+                        resolve();
+                    }
                 }
             });
         });
@@ -975,7 +1005,7 @@ class ParticleEngine {
         }
 
         // Trigger animation
-        this.triggerMorphAnimation();
+        this.triggerMorphAnimation(true);
     }
 
     // Reset camera position
@@ -995,9 +1025,16 @@ class ParticleEngine {
     onWindowResize() {
         const width = this.container.clientWidth;
         const height = this.container.clientHeight;
+        
+        // Clear inline style width and height so they default to CSS definitions (100%)
+        if (this.canvas) {
+            this.canvas.style.width = '';
+            this.canvas.style.height = '';
+        }
+        
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(width, height);
+        this.renderer.setSize(width, height, false);
     }
 
     onMouseMove(e) {
@@ -1073,7 +1110,7 @@ class ParticleEngine {
         }
 
         // 2. Shimmering vortex flow in idle state (not during transition or spaceship flight)
-        const isIdleState = (this.transition.progress === 0 || this.transition.progress === 1.0) && !this.isSpaceshipActive;
+        const isIdleState = !this.isMorphActive && !this.isSpaceshipActive;
         if (isIdleState) {
             const posAttr = this.particleSystem.geometry.attributes.position;
             const size = this.activeCount;
@@ -1187,4 +1224,63 @@ window.addEventListener('DOMContentLoaded', () => {
             visualizerEngine.disperse();
         });
     }
+
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    if (btnFullscreen) {
+        btnFullscreen.addEventListener('click', () => {
+            const container = document.querySelector('.canvas-container');
+            if (!document.fullscreenElement && 
+                !document.mozFullScreenElement && 
+                !document.webkitFullscreenElement && 
+                !document.msFullscreenElement) {
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.mozRequestFullScreen) {
+                    container.mozRequestFullScreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                } else if (container.msRequestFullscreen) {
+                    container.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+        });
+    }
+
+    const handleFullscreenChange = () => {
+        const isFullscreen = !!(document.fullscreenElement || 
+                               document.mozFullScreenElement || 
+                               document.webkitFullscreenElement || 
+                               document.msFullscreenElement);
+        if (btnFullscreen) {
+            if (isFullscreen) {
+                btnFullscreen.innerHTML = '<i class="fa-solid fa-compress"></i>';
+                btnFullscreen.title = "退出全屏";
+                btnFullscreen.classList.add('active');
+            } else {
+                btnFullscreen.innerHTML = '<i class="fa-solid fa-expand"></i>';
+                btnFullscreen.title = "全屏展示";
+                btnFullscreen.classList.remove('active');
+            }
+        }
+        if (visualizerEngine) {
+            setTimeout(() => {
+                visualizerEngine.onWindowResize();
+            }, 100);
+        }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('msfullscreenchange', handleFullscreenChange);
 });
