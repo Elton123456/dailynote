@@ -1,0 +1,24 @@
+{
+  "name": "fluencyflow-diary",
+  "version": "1.0.0",
+  "description": "3D Particle Daily Diary for English Practice",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "threejs",
+    "webgl",
+    "speech-recognition",
+    "diary",
+    "english-practice",
+    "gemini"
+  ],
+  "author": "Antigravity",
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
