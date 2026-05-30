@@ -20,6 +20,7 @@ class ParticleEngine {
         
         // Disperse and Restore baseline states
         this.isDispersed = false;
+        this.isSpaceshipActive = false;
         this.baselinePositions = null;
         this.baselineColors = null;
         
@@ -91,6 +92,20 @@ class ParticleEngine {
         gridHelper.material.opacity = 0.2;
         gridHelper.material.transparent = true;
         this.scene.add(gridHelper);
+
+        // 5b. 3D Plane Photo Card Setup
+        const cardGeo = new THREE.PlaneGeometry(50, 50);
+        const cardMat = new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.0,
+            depthWrite: false, // Prevents depth fighting with particles
+            depthTest: false,  // Always draw on top of particles regardless of depth buffer
+            side: THREE.DoubleSide
+        });
+        this.photoCard = new THREE.Mesh(cardGeo, cardMat);
+        this.photoCard.renderOrder = 1; // Render after particles
+        this.photoCard.position.set(0, 0, 0.05);
+        this.group.add(this.photoCard);
         // 6. Slider configurations & bindings (Only particle size needed now)
         const sizeSlider = document.getElementById('slider-particle-size');
         
@@ -235,27 +250,44 @@ class ParticleEngine {
             img.src = imageUrl;
             
             img.onload = () => {
+                // Setup photoCard aspect ratio and texture
+                const aspect = img.width / img.height;
+                const scale = 50;
+                
+                if (this.photoCard) {
+                    if (this.photoCard.geometry) this.photoCard.geometry.dispose();
+                    this.photoCard.geometry = new THREE.PlaneGeometry(scale * aspect, scale);
+                    
+                    const texture = new THREE.Texture(img);
+                    texture.minFilter = THREE.LinearFilter;
+                    texture.needsUpdate = true;
+                    
+                    if (this.photoCard.material.map) this.photoCard.material.map.dispose();
+                    this.photoCard.material.map = texture;
+                    this.photoCard.material.needsUpdate = true;
+                }
+
                 // Create temporary canvas to read pixels
                 const tempCanvas = document.createElement('canvas');
                 const tempCtx = tempCanvas.getContext('2d');
                 
-                // Calculate dimensions for downsampling
-                // target around 40,000 - 55,000 particles for high detail
+                // Calculate dimensions for downsampling to target around 50,000 particles
                 let width = img.width;
                 let height = img.height;
-                const maxDimension = 240;
+                const targetParticles = 50000;
+                const imgAspect = img.width / img.height;
                 
-                if (width > height) {
-                    if (width > maxDimension) {
-                        height = Math.round((height * maxDimension) / width);
-                        width = maxDimension;
-                    }
-                } else {
-                    if (height > maxDimension) {
-                        width = Math.round((width * maxDimension) / height);
-                        height = maxDimension;
-                    }
+                let heightTarget = Math.round(Math.sqrt(targetParticles / imgAspect));
+                let widthTarget = Math.round(heightTarget * imgAspect);
+                
+                // Clamp to maxParticles pool size safety
+                if (widthTarget * heightTarget > this.maxParticles - 1000) {
+                    const scaleFactor = Math.sqrt((this.maxParticles - 1000) / (widthTarget * heightTarget));
+                    widthTarget = Math.floor(widthTarget * scaleFactor);
+                    heightTarget = Math.floor(heightTarget * scaleFactor);
                 }
+                width = widthTarget;
+                height = heightTarget;
                 
                 tempCanvas.width = width;
                 tempCanvas.height = height;
@@ -264,6 +296,9 @@ class ParticleEngine {
                 const imgData = tempCtx.getImageData(0, 0, width, height);
                 const pixels = imgData.data;
                 
+                // Save previous active count
+                this.prevActiveCount = this.activeCount || 45000;
+
                 // Copy current display state to source positions
                 for (let i = 0; i < this.maxParticles * 3; i++) {
                     this.sourcePositions[i] = this.currentPositions[i];
@@ -272,8 +307,6 @@ class ParticleEngine {
                 
                 // Map pixels to target positions/colors
                 let particleIndex = 0;
-                const aspect = width / height;
-                const scale = 50; // Max size bounding box in 3D
                 
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
@@ -296,24 +329,25 @@ class ParticleEngine {
                             continue;
                         }
                         
-                        // Calculate normalized distance from image center (0, 0)
-                        const dxCenter = (x / width) - 0.5;
-                        const dyCenter = (y / height) - 0.5;
-                        const distFromCenter = Math.sqrt(dxCenter * dxCenter + dyCenter * dyCenter) * 2.0;
+                        // Calculate normalized distance to nearest edge (0.0 at edges, 1.0 at center)
+                        const distX = 0.5 - Math.abs((x / width) - 0.5);
+                        const distY = 0.5 - Math.abs((y / height) - 0.5);
+                        const distToEdge = Math.min(distX, distY) * 2.0; 
                         
-                        // 1. Probabilistic Drop (particle density gradient)
+                        // 1. Probabilistic Drop near extreme edge (within 10% of the edge)
                         let keepProbability = 1.0;
-                        if (distFromCenter > 0.4) {
-                            keepProbability = Math.max(0.0, 1.0 - Math.pow((distFromCenter - 0.4) / 0.8, 1.5));
+                        if (distToEdge < 0.10) {
+                            keepProbability = 0.1 + 0.9 * (distToEdge / 0.10);
                         }
                         if (Math.random() > keepProbability) {
                             continue;
                         }
                         
-                        // 2. Progressive Scatter (break the hard boundaries)
+                        // 2. Progressive Scatter near edge (within 15% of the edge)
                         let scatter = 0;
-                        if (distFromCenter > 0.5) {
-                            scatter = Math.pow((distFromCenter - 0.5) / 0.9, 2.5) * 12.0;
+                        if (distToEdge < 0.15) {
+                            const factor = 1.0 - (distToEdge / 0.15);
+                            scatter = factor * factor * 4.0;
                         }
                         const randomOffsetX = (Math.random() - 0.5) * scatter;
                         const randomOffsetY = (Math.random() - 0.5) * scatter;
@@ -333,8 +367,8 @@ class ParticleEngine {
                         
                         // 3. Brightness fade near edges (gradient fade into dark background)
                         let fade = 1.0;
-                        if (distFromCenter > 0.4) {
-                            fade = Math.max(0.05, 1.0 - Math.pow((distFromCenter - 0.4) / 0.8, 2.0));
+                        if (distToEdge < 0.10) {
+                            fade = distToEdge / 0.10;
                         }
                         
                         // Add some texture vibrancy
@@ -347,17 +381,15 @@ class ParticleEngine {
                 }
                 
                 this.activeCount = particleIndex;
-                document.getElementById('particle-count').innerText = `Particles: ${this.activeCount}`;
+                const countTag = document.getElementById('particle-count');
+                if (countTag) countTag.innerText = `Particles: ${this.activeCount}`;
                 
                 // Send remaining particles in the pool to rest far away and make them invisible
                 for (let i = this.activeCount; i < this.maxParticles; i++) {
                     const idx = i * 3;
-                    // Disperse them in a very wide spherical cloud far behind the far clipping plane (far = 1000)
-                    const theta = Math.random() * Math.PI * 2;
-                    const r = 200 + Math.random() * 200;
-                    this.targetPositions[idx] = Math.cos(theta) * r;
-                    this.targetPositions[idx + 1] = Math.sin(theta) * r;
-                    this.targetPositions[idx + 2] = -999; // Deeply out of camera clipping range (far = 1000)
+                    this.targetPositions[idx] = 0;
+                    this.targetPositions[idx + 1] = 0;
+                    this.targetPositions[idx + 2] = -9999; // Deeply out of camera clipping range
                     
                     // Make them fully black (invisible)
                     this.targetColors[idx] = 0.0;
@@ -377,8 +409,6 @@ class ParticleEngine {
                     btnDisperse.title = "粒子离散测试";
                 }
                 
-                // Trigger morphing animation using GSAP
-                this.triggerMorphAnimation();
                 resolve(this.activeCount);
             };
             
@@ -389,136 +419,512 @@ class ParticleEngine {
     }
 
     triggerMorphAnimation() {
-        // Reset progress
-        this.transition.progress = 0;
-        
-        // Stop spin controls during main transition for wow factor
-        const wasSpinning = this.spinEnabled;
-        this.spinEnabled = false;
-        
-        // Animate camera rotation slightly to reveal 3D effect
-        gsap.killTweensOf(this.camera.position);
-        gsap.to(this.camera.position, {
-            x: 10,
-            y: 5,
-            z: 75,
-            duration: 2.2,
-            ease: "power2.out"
-        });
+        return new Promise((resolve) => {
+            // Capture the current positions and colors as the starting point for the morph
+            for (let i = 0; i < this.maxParticles * 3; i++) {
+                this.sourcePositions[i] = this.currentPositions[i];
+                this.sourceColors[i] = this.currentColors[i];
+            }
 
-        // Compute Y and X bounds of target coordinates for staggering (sand falling with wave edges)
-        let minY = Infinity, maxY = -Infinity;
-        let minX = Infinity, maxX = -Infinity;
-        for (let i = 0; i < this.maxParticles; i++) {
-            const x = this.targetPositions[i * 3];
-            const y = this.targetPositions[i * 3 + 1];
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-        }
-        const yRange = (maxY - minY) || 1;
-        const xRange = (maxX - minX) || 1;
-        
-        // Morph particles positions and colors with a futuristic swirling double-helix vortex and energy glow
-        gsap.killTweensOf(this.transition);
-        gsap.to(this.transition, {
-            progress: 1.0,
-            duration: 3.2, // Majestic duration to appreciate the swirls
-            ease: "power2.inOut",
-            onUpdate: () => {
-                const p = this.transition.progress;
-                
-                for (let i = 0; i < this.maxParticles; i++) {
-                    const idx = i * 3;
+            // Reset progress
+            this.transition.progress = 0;
+            
+            // Stop spin controls during main transition for wow factor
+            const wasSpinning = this.spinEnabled;
+            this.spinEnabled = false;
+            
+            // Animate camera rotation slightly to reveal 3D effect
+            gsap.killTweensOf(this.camera.position);
+            gsap.to(this.camera.position, {
+                x: 10,
+                y: 5,
+                z: 75,
+                duration: 2.2,
+                ease: "power2.out"
+            });
+
+            // Compute Y and X bounds of target coordinates for staggering (sand falling with wave edges)
+            let minY = Infinity, maxY = -Infinity;
+            let minX = Infinity, maxX = -Infinity;
+            for (let i = 0; i < this.maxParticles; i++) {
+                const x = this.targetPositions[i * 3];
+                const y = this.targetPositions[i * 3 + 1];
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+            }
+            const yRange = (maxY - minY) || 1;
+            const xRange = (maxX - minX) || 1;
+            
+            // Morph particles positions and colors with a futuristic swirling double-helix vortex and energy glow
+            gsap.killTweensOf(this.transition);
+            gsap.to(this.transition, {
+                progress: 1.0,
+                duration: 3.2, // Majestic duration to appreciate the swirls
+                ease: "power2.inOut",
+                onUpdate: () => {
+                    const p = this.transition.progress;
                     
-                    const xSource = this.sourcePositions[idx];
-                    const ySource = this.sourcePositions[idx + 1];
-                    const zSource = this.sourcePositions[idx + 2];
-                    
-                    const xTarget = this.targetPositions[idx];
-                    const yTarget = this.targetPositions[idx + 1];
-                    const zTarget = this.targetPositions[idx + 2];
-                    
-                    // Normalize coordinates (0.0 to 1.0)
-                    const yNorm = (yTarget - minY) / yRange; 
-                    const xNorm = (xTarget - minX) / xRange;
-                    
-                    // Wave pattern for transition front (looks like wind-blown sand dunes or sea waves rolling down)
-                    const waveOffset = Math.sin(xNorm * Math.PI * 3.0 + yNorm * Math.PI) * 0.08 
-                                     + Math.cos(xNorm * Math.PI * 7.0) * 0.04;
-                                     
-                    // Base stagger delay + wavy boundaries. Clamp to [0, 0.4] of progress space
-                    const delay = Math.max(0, Math.min(0.4, (1.0 - yNorm) * 0.35 + waveOffset));
-                    
-                    // Flight progress of this specific particle
-                    const particleDuration = 0.6; // takes 60% of the total transition timeline
-                    let pI = (p - delay) / particleDuration;
-                    pI = Math.max(0, Math.min(1.0, pI));
-                    
-                    // Smoothstep easing for individual particle flight
-                    const easePI = pI * pI * (3.0 - 2.0 * pI);
-                    const invPI = 1.0 - easePI;
-                    
-                    // Polar representation around Y-axis for swirling vortex swirl
-                    const rS = Math.sqrt(xSource * xSource + zSource * zSource) || 1;
-                    const thetaS = Math.atan2(zSource, xSource);
-                    
-                    const rT = Math.sqrt(xTarget * xTarget + zTarget * zTarget) || 1;
-                    const thetaT = Math.atan2(zTarget, xTarget);
-                    
-                    const midFactor = Math.sin(pI * Math.PI); // peak in middle of flight
-                    
-                    // 1. Swirl radius: explodes outwards slightly in the middle of flight for cosmic shield look
-                    const currentR = rS * invPI + rT * easePI + midFactor * 16.0;
-                    
-                    // 2. Double-helix rotation swirl: even index rotates clockwise, odd index rotates counter-clockwise
-                    const swirlRotations = 1.6 * Math.PI; // swirl angle
-                    const direction = (i % 2 === 0) ? 1.0 : -1.0;
-                    const currentTheta = thetaS * invPI + thetaT * easePI + midFactor * swirlRotations * direction;
-                    
-                    // Cartesian coordinate back-projection
-                    let x = Math.cos(currentTheta) * currentR;
-                    let z = Math.sin(currentTheta) * currentR;
-                    let y = ySource * invPI + yTarget * easePI;
-                    
-                    // 3. Gravity dip: drop down in Y during middle of flight
-                    y -= midFactor * 10.0;
-                    
-                    this.currentPositions[idx] = x;
-                    this.currentPositions[idx + 1] = y;
-                    this.currentPositions[idx + 2] = z;
-                    
-                    // Color morphing with glowing energy charging effect:
-                    // Flying particles turn into neon cyan (for even) or neon pink (for odd) and fade back to pixel colors on landing!
-                    const rBase = this.sourceColors[idx] * invPI + this.targetColors[idx] * easePI;
-                    const gBase = this.sourceColors[idx + 1] * invPI + this.targetColors[idx + 1] * easePI;
-                    const bBase = this.sourceColors[idx + 2] * invPI + this.targetColors[idx + 2] * easePI;
-                    
-                    if (pI > 0.0 && pI < 1.0) {
-                        const isEven = i % 2 === 0;
-                        // Neon Cyan (0, 1, 1) or Neon Pink (1, 0, 0.6)
-                        const energyR = isEven ? 0.0 : 1.0;
-                        const energyG = isEven ? 0.95 : 0.0;
-                        const energyB = isEven ? 1.0 : 0.6;
+                    for (let i = 0; i < this.maxParticles; i++) {
+                        const idx = i * 3;
                         
-                        this.currentColors[idx] = rBase * (1.0 - midFactor) + energyR * midFactor;
-                        this.currentColors[idx + 1] = gBase * (1.0 - midFactor) + energyG * midFactor;
-                        this.currentColors[idx + 2] = bBase * (1.0 - midFactor) + energyB * midFactor;
+                        // Skip spaceship particles during concurrent spaceship transition
+                        if (this.isSpaceshipActive && this.spaceshipIndices && this.spaceshipIndices.has(i)) {
+                            continue;
+                        }
+                        
+                        const xSource = this.sourcePositions[idx];
+                        const ySource = this.sourcePositions[idx + 1];
+                        const zSource = this.sourcePositions[idx + 2];
+                        
+                        const xTarget = this.targetPositions[idx];
+                        const yTarget = this.targetPositions[idx + 1];
+                        const zTarget = this.targetPositions[idx + 2];
+                        
+                        // Normalize coordinates (0.0 to 1.0)
+                        const yNorm = (yTarget - minY) / yRange; 
+                        const xNorm = (xTarget - minX) / xRange;
+                        
+                        // Wave pattern for transition front (looks like wind-blown sand dunes or sea waves rolling down)
+                        const waveOffset = Math.sin(xNorm * Math.PI * 3.0 + yNorm * Math.PI) * 0.08 
+                                         + Math.cos(xNorm * Math.PI * 7.0) * 0.04;
+                                         
+                        // Base stagger delay + wavy boundaries. Clamp to [0, 0.4] of progress space
+                        const delay = Math.max(0, Math.min(0.4, (1.0 - yNorm) * 0.35 + waveOffset));
+                        
+                        // Flight progress of this specific particle
+                        const particleDuration = 0.6; // takes 60% of the total transition timeline
+                        let pI = (p - delay) / particleDuration;
+                        pI = Math.max(0, Math.min(1.0, pI));
+                        
+                        // Smoothstep easing for individual particle flight
+                        const easePI = pI * pI * (3.0 - 2.0 * pI);
+                        const invPI = 1.0 - easePI;
+                        
+                        // Polar representation around Y-axis for swirling vortex swirl
+                        const rS = Math.sqrt(xSource * xSource + zSource * zSource) || 1;
+                        const thetaS = Math.atan2(zSource, xSource);
+                        
+                        const rT = Math.sqrt(xTarget * xTarget + zTarget * zTarget) || 1;
+                        const thetaT = Math.atan2(zTarget, xTarget);
+                        
+                        const midFactor = Math.sin(pI * Math.PI); // peak in middle of flight
+                        
+                        // 1. Swirl radius: explodes outwards slightly in the middle of flight for cosmic shield look
+                        const currentR = rS * invPI + rT * easePI + midFactor * 16.0;
+                        
+                        // 2. Double-helix rotation swirl: even index rotates clockwise, odd index rotates counter-clockwise
+                        const swirlRotations = 1.6 * Math.PI; // swirl angle
+                        const direction = (i % 2 === 0) ? 1.0 : -1.0;
+                        const currentTheta = thetaS * invPI + thetaT * easePI + midFactor * swirlRotations * direction;
+                        
+                        // Cartesian coordinate back-projection
+                        let x = Math.cos(currentTheta) * currentR;
+                        let z = Math.sin(currentTheta) * currentR;
+                        let y = ySource * invPI + yTarget * easePI;
+                        
+                        // 3. Gravity dip: drop down in Y during middle of flight
+                        y -= midFactor * 10.0;
+                        
+                        this.currentPositions[idx] = x;
+                        this.currentPositions[idx + 1] = y;
+                        this.currentPositions[idx + 2] = z;
+                        
+                        // Color morphing with glowing energy charging effect:
+                        // Flying particles turn into neon cyan (for even) or neon pink (for odd) and fade back to pixel colors on landing!
+                        const rBase = this.sourceColors[idx] * invPI + this.targetColors[idx] * easePI;
+                        const gBase = this.sourceColors[idx + 1] * invPI + this.targetColors[idx + 1] * easePI;
+                        const bBase = this.sourceColors[idx + 2] * invPI + this.targetColors[idx + 2] * easePI;
+                        
+                        if (pI > 0.0 && pI < 1.0) {
+                            const isEven = i % 2 === 0;
+                            // Neon Cyan (0, 1, 1) or Neon Pink (1, 0, 0.6)
+                            const energyR = isEven ? 0.0 : 1.0;
+                            const energyG = isEven ? 0.95 : 0.0;
+                            const energyB = isEven ? 1.0 : 0.6;
+                            
+                            this.currentColors[idx] = rBase * (1.0 - midFactor) + energyR * midFactor;
+                            this.currentColors[idx + 1] = gBase * (1.0 - midFactor) + energyG * midFactor;
+                            this.currentColors[idx + 2] = bBase * (1.0 - midFactor) + energyB * midFactor;
+                        } else {
+                            this.currentColors[idx] = rBase;
+                            this.currentColors[idx + 1] = gBase;
+                            this.currentColors[idx + 2] = bBase;
+                        }
+                    }
+                    
+                    this.particleSystem.geometry.attributes.position.needsUpdate = true;
+                    this.particleSystem.geometry.attributes.color.needsUpdate = true;
+                },
+                onComplete: () => {
+                    this.spinEnabled = wasSpinning;
+                    console.log("Vortex double-helix morph completed.");
+                    // Animate camera and group back to front-facing position
+                    gsap.to(this.camera.position, {
+                        x: 0,
+                        y: 0,
+                        z: 80,
+                        duration: 1.2,
+                        ease: "power2.out"
+                    });
+                    gsap.to(this.group.rotation, {
+                        x: 0,
+                        y: 0,
+                        z: 0,
+                        duration: 1.2,
+                        ease: "power2.out",
+                        onUpdate: () => {
+                            this.controls.target.set(0, 0, 0);
+                            this.controls.update();
+                        }
+                    });
+                    resolve();
+                }
+            });
+        });
+    }
+
+    // Spaceship Transition Animation
+    playSpaceshipTransition(duration = 1.2) {
+        return new Promise((resolve) => {
+            this.isSpaceshipActive = true;
+            // Select spaceships based on color intersection
+            const spaceships = this.selectSpaceshipParticles();
+            
+            // Mark spaceship indices and trail indices
+            this.spaceshipIndices = new Set();
+            const trails = []; // Array of arrays of trail particle info: { index, lag }
+            
+            spaceships.forEach((ship) => {
+                this.spaceshipIndices.add(ship.index);
+                // Assign 4 trail particles per spaceship
+                const shipTrails = [];
+                for (let tIdx = 1; tIdx <= 4; tIdx++) {
+                    const trailIdx = (ship.index + tIdx) % this.maxParticles;
+                    this.spaceshipIndices.add(trailIdx);
+                    shipTrails.push({
+                        index: trailIdx,
+                        lag: tIdx * 0.05
+                    });
+                }
+                trails.push(shipTrails);
+            });
+            
+            // For all non-spaceship particles, calculate their scatter targets
+            const scatterTargets = new Float32Array(this.maxParticles * 3);
+            for (let i = 0; i < this.maxParticles; i++) {
+                if (this.spaceshipIndices.has(i)) continue;
+                
+                const idx = i * 3;
+                const x = this.sourcePositions[idx];
+                const y = this.sourcePositions[idx + 1];
+                const z = this.sourcePositions[idx + 2];
+                
+                // Direction of scattering: radially outward from center
+                const dirX = x;
+                const dirY = y;
+                const dirZ = z + (Math.random() - 0.5) * 20.0;
+                
+                const len = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ) || 1;
+                const dist = 60.0 + Math.random() * 40.0;
+                
+                scatterTargets[idx] = x + (dirX / len) * dist;
+                scatterTargets[idx + 1] = y + (dirY / len) * dist;
+                scatterTargets[idx + 2] = z + (dirZ / len) * dist;
+            }
+            
+            // Stop spin control during transition
+            const wasSpinning = this.spinEnabled;
+            this.spinEnabled = false;
+            
+            // We use GSAP to animate a transition progress object
+            this.spaceshipState = { progress: 0 };
+            
+            gsap.killTweensOf(this.spaceshipState);
+            
+            // Start the mid-flight morph animation trigger halfway through flight
+            let morphTriggered = false;
+
+            gsap.to(this.spaceshipState, {
+                progress: 1.0,
+                duration: duration,
+                ease: "power1.inOut",
+                onUpdate: () => {
+                    const t = this.spaceshipState.progress;
+                    const posAttr = this.particleSystem.geometry.attributes.position;
+                    const colAttr = this.particleSystem.geometry.attributes.color;
+                    
+                    // Trigger morph transition at 50% flight progress
+                    if (t >= 0.5 && !morphTriggered) {
+                        morphTriggered = true;
+                        // Trigger morph animation in the background, starting from current positions
+                        this.triggerMorphAnimation();
+                    }
+
+                    // Only update coordinates if morph has not started, or for the spaceship particles which continue their flight path
+                    for (let i = 0; i < this.maxParticles; i++) {
+                        const idx = i * 3;
+
+                        if (this.spaceshipIndices.has(i)) {
+                            // Spaceship / Trail flight path logic (continue path till t = 1.0)
+                            // Find which spaceship this index belongs to
+                            let shipIdx = -1;
+                            let ship = null;
+                            let isTrail = false;
+                            let trailInfo = null;
+
+                            for (let s = 0; s < spaceships.length; s++) {
+                                if (spaceships[s].index === i) {
+                                    shipIdx = s;
+                                    ship = spaceships[s];
+                                    break;
+                                }
+                            }
+
+                            if (shipIdx === -1) {
+                                // Must be a trail particle
+                                for (let s = 0; s < trails.length; s++) {
+                                    const tInfo = trails[s].find(tr => tr.index === i);
+                                    if (tInfo) {
+                                        shipIdx = s;
+                                        ship = spaceships[s];
+                                        trailInfo = tInfo;
+                                        isTrail = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (shipIdx !== -1 && ship) {
+                                const xStart = this.sourcePositions[idx];
+                                const yStart = this.sourcePositions[idx + 1];
+                                const zStart = this.sourcePositions[idx + 2];
+                                
+                                const xEnd = this.targetPositions[idx];
+                                const yEnd = this.targetPositions[idx + 1];
+                                const zEnd = this.targetPositions[idx + 2];
+
+                                let tEffective = t;
+                                if (isTrail && trailInfo) {
+                                    tEffective = Math.max(0.0, t - trailInfo.lag);
+                                    tEffective = tEffective / (1.0 - trailInfo.lag || 1);
+                                }
+
+                                const x = xStart * (1 - tEffective) + xEnd * tEffective;
+                                const y = yStart * (1 - tEffective) + yEnd * tEffective;
+                                let z = zStart * (1 - tEffective) + zEnd * tEffective;
+                                // 3D parabolic height arc
+                                const heightArc = isTrail ? 55.0 : 60.0;
+                                z += Math.sin(tEffective * Math.PI) * heightArc;
+
+                                // Wiggle wobble effect
+                                const freq = 4.0 * Math.PI;
+                                const amp = 4.0;
+                                const wobbleX = Math.sin(tEffective * freq) * amp * (1.0 - tEffective) * tEffective;
+                                const wobbleY = Math.cos(tEffective * freq) * amp * (1.0 - tEffective) * tEffective;
+
+                                this.currentPositions[idx] = x + wobbleX;
+                                this.currentPositions[idx + 1] = y + wobbleY;
+                                this.currentPositions[idx + 2] = z;
+
+                                // Glow color
+                                const startCol = ship.startColor;
+                                const endCol = ship.endColor;
+                                const rCol = startCol.r * (1 - tEffective) + endCol.r * tEffective;
+                                const gCol = startCol.g * (1 - tEffective) + endCol.g * tEffective;
+                                const bCol = startCol.b * (1 - tEffective) + endCol.b * tEffective;
+
+                                const peakGlow = isTrail ? (1.2 - trailInfo.lag * 2) : 2.5;
+                                const glow = Math.sin(tEffective * Math.PI) * peakGlow;
+
+                                this.currentColors[idx] = rCol + glow * 0.4;
+                                this.currentColors[idx + 1] = gCol + glow * 0.8;
+                                this.currentColors[idx + 2] = bCol + glow * 1.0;
+                            }
+                        } else if (!morphTriggered) {
+                            // Non-spaceship particles scatter outwards before morph is triggered
+                            const xStart = this.sourcePositions[idx];
+                            const yStart = this.sourcePositions[idx + 1];
+                            const zStart = this.sourcePositions[idx + 2];
+                            
+                            const xEnd = scatterTargets[idx];
+                            const yEnd = scatterTargets[idx + 1];
+                            const zEnd = scatterTargets[idx + 2];
+                            
+                            this.currentPositions[idx] = xStart * (1 - t) + xEnd * t;
+                            this.currentPositions[idx + 1] = yStart * (1 - t) + yEnd * t;
+                            this.currentPositions[idx + 2] = zStart * (1 - t) + zEnd * t;
+                            
+                            this.currentColors[idx] = this.sourceColors[idx] * (1.0 - t * 0.7);
+                            this.currentColors[idx + 1] = this.sourceColors[idx + 1] * (1.0 - t * 0.7);
+                            this.currentColors[idx + 2] = this.sourceColors[idx + 2] * (1.0 - t * 0.7);
+                        }
+                    }
+                    
+                    posAttr.needsUpdate = true;
+                    colAttr.needsUpdate = true;
+                },
+                onComplete: () => {
+                    this.spinEnabled = wasSpinning;
+                    this.isSpaceshipActive = false;
+                    this.spaceshipIndices = null;
+                    // Ensure morph animation is running if not triggered yet for some reason
+                    if (!morphTriggered) {
+                        this.triggerMorphAnimation().then(resolve);
                     } else {
-                        this.currentColors[idx] = rBase;
-                        this.currentColors[idx + 1] = gBase;
-                        this.currentColors[idx + 2] = bBase;
+                        resolve();
                     }
                 }
-                
-                this.particleSystem.geometry.attributes.position.needsUpdate = true;
-                this.particleSystem.geometry.attributes.color.needsUpdate = true;
-            },
-            onComplete: () => {
-                this.spinEnabled = wasSpinning;
-                console.log("Vortex double-helix morph completed.");
+            });
+        });
+    }
+
+    // Dominant color extraction helper
+    getDominantColors(colors, count, numColors = 4) {
+        const bins = {};
+        const step = 8;
+        const sampleRate = Math.max(1, Math.floor(count / 1000));
+        
+        for (let i = 0; i < count; i += sampleRate) {
+            const idx = i * 3;
+            const r = colors[idx];
+            const g = colors[idx + 1];
+            const b = colors[idx + 2];
+            
+            if (r + g + b < 0.15) continue; // Skip very dark
+            
+            const ri = Math.floor(r * (step - 1));
+            const gi = Math.floor(g * (step - 1));
+            const bi = Math.floor(b * (step - 1));
+            const binKey = `${ri},${gi},${bi}`;
+            
+            if (!bins[binKey]) {
+                bins[binKey] = { rSum: 0, gSum: 0, bSum: 0, count: 0 };
             }
+            bins[binKey].rSum += r;
+            bins[binKey].gSum += g;
+            bins[binKey].bSum += b;
+            bins[binKey].count++;
+        }
+        
+        const sortedBins = Object.values(bins).sort((a, b) => b.count - a.count);
+        const dominant = [];
+        
+        for (let i = 0; i < Math.min(numColors, sortedBins.length); i++) {
+            const bin = sortedBins[i];
+            dominant.push(new THREE.Color(
+                bin.rSum / bin.count,
+                bin.gSum / bin.count,
+                bin.bSum / bin.count
+            ));
+        }
+        
+        while (dominant.length < numColors) {
+            dominant.push(new THREE.Color(Math.random(), Math.random(), Math.random()));
+        }
+        return dominant;
+    }
+
+    // Spaceship particle selectors
+    selectSpaceshipParticles() {
+        const srcDominant = this.getDominantColors(this.sourceColors, this.prevActiveCount || 45000, 4);
+        const tgtDominant = this.getDominantColors(this.targetColors, this.activeCount, 4);
+        
+        const spaceships = [];
+        const matchedSourceIndices = new Set();
+        const matchedTargetIndices = new Set();
+        
+        const threshold = 0.25;
+        for (let t = 0; t < tgtDominant.length; t++) {
+            const tc = tgtDominant[t];
+            let bestSrcIdx = -1;
+            let bestDist = Infinity;
+            for (let s = 0; s < srcDominant.length; s++) {
+                if (matchedSourceIndices.has(s)) continue;
+                const sc = srcDominant[s];
+                const dist = Math.sqrt((tc.r - sc.r)**2 + (tc.g - sc.g)**2 + (tc.b - sc.b)**2);
+                if (dist < threshold && dist < bestDist) {
+                    bestDist = dist;
+                    bestSrcIdx = s;
+                }
+            }
+            if (bestSrcIdx !== -1) {
+                matchedSourceIndices.add(bestSrcIdx);
+                matchedTargetIndices.add(t);
+                const pIdx = this.findParticleWithColor(this.sourceColors, this.prevActiveCount || 45000, srcDominant[bestSrcIdx]);
+                spaceships.push({
+                    index: pIdx,
+                    startColor: srcDominant[bestSrcIdx].clone(),
+                    endColor: tc.clone()
+                });
+            }
+        }
+        
+        let srcUnmatched = [];
+        let tgtUnmatched = [];
+        for (let s = 0; s < srcDominant.length; s++) {
+            if (!matchedSourceIndices.has(s)) srcUnmatched.push(s);
+        }
+        for (let t = 0; t < tgtDominant.length; t++) {
+            if (!matchedTargetIndices.has(t)) tgtUnmatched.push(t);
+        }
+        
+        const fillCount = 4 - spaceships.length;
+        for (let k = 0; k < fillCount; k++) {
+            const sIdx = srcUnmatched[k % srcUnmatched.length] ?? 0;
+            const tIdx = tgtUnmatched[k % tgtUnmatched.length] ?? 0;
+            
+            const sc = srcDominant[sIdx];
+            const tc = tgtDominant[tIdx];
+            
+            const pIdx = this.findParticleWithColor(this.sourceColors, this.prevActiveCount || 45000, sc);
+            spaceships.push({
+                index: pIdx,
+                startColor: sc.clone(),
+                endColor: tc.clone()
+            });
+        }
+        
+        return spaceships;
+    }
+
+    findParticleWithColor(colors, count, targetColor) {
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        const step = Math.max(1, Math.floor(count / 1500));
+        for (let i = 0; i < count; i += step) {
+            const idx = i * 3;
+            const r = colors[idx];
+            const g = colors[idx + 1];
+            const b = colors[idx + 2];
+            const dist = Math.sqrt((r - targetColor.r)**2 + (g - targetColor.g)**2 + (b - targetColor.b)**2);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
+
+    // Fading methods
+    fadeToImage(opacity, duration) {
+        if (!this.photoCard) return gsap.resolve();
+        gsap.killTweensOf(this.photoCard.material);
+        return gsap.to(this.photoCard.material, {
+            opacity: opacity,
+            duration: duration,
+            ease: "power2.out"
+        });
+    }
+
+    fadeParticles(opacity, duration) {
+        if (!this.particleSystem) return gsap.resolve();
+        gsap.killTweensOf(this.particleSystem.material);
+        return gsap.to(this.particleSystem.material, {
+            opacity: opacity,
+            duration: duration,
+            ease: "power2.out"
         });
     }
 
@@ -666,8 +1072,9 @@ class ParticleEngine {
             this.group.rotation.x *= 0.95;
         }
 
-        // 2. Shimmering vortex flow in idle state (not during transition)
-        if (this.transition.progress === 0 || this.transition.progress === 1.0) {
+        // 2. Shimmering vortex flow in idle state (not during transition or spaceship flight)
+        const isIdleState = (this.transition.progress === 0 || this.transition.progress === 1.0) && !this.isSpaceshipActive;
+        if (isIdleState) {
             const posAttr = this.particleSystem.geometry.attributes.position;
             const size = this.activeCount;
             

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FluencyFlow - 3D 粒子口语手账</title>
+    <title>FluencyFlow - 3D 粒子画廊轮播秀</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,8 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <!-- GSAP for smooth animations -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-zqAiUB60.css">
+  <script type="module" crossorigin src="/assets/index-DMWH_3MD.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BIVYu6e1.css">
 </head>
 <body>
     <div class="app-container">
@@ -29,13 +30,10 @@
             <div class="logo-area">
                 <i class="fa-solid fa-wand-magic-sparkles logo-icon"></i>
                 <span class="logo-text">FluencyFlow</span>
-                <span class="logo-tag">口语日记</span>
+                <span class="logo-tag">粒子画廊</span>
             </div>
             <div class="header-right">
                 <div class="date-display" id="current-date">May 30, 2026</div>
-                <button class="icon-btn" id="settings-btn" title="设置">
-                    <i class="fa-solid fa-sliders"></i>
-                </button>
             </div>
         </header>
 
@@ -58,11 +56,11 @@
                             <div class="upload-icon-wrapper">
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                             </div>
-                            <h3>置入今日记忆</h3>
-                            <p>拖拽或点击上传照片，重构为 3D 粒子并开启对话</p>
-                            <input type="file" id="image-input" accept="image/*" style="display: none;">
+                            <h3>置入轮播素材</h3>
+                            <p>拖拽或点击上传多张照片，重构为粒子进行宇宙轮播秀</p>
+                            <input type="file" id="image-input" accept="image/*" multiple style="display: none;">
                             <button class="primary-btn upload-btn" onclick="document.getElementById('image-input').click()">
-                                选择图片
+                                上传多张图片
                             </button>
                         </div>
                     </div>
@@ -91,211 +89,80 @@
                 </div>
             </section>
 
-            <!-- Right Panel: Conversation & Diary -->
+            <!-- Right Panel: Carousel Control Center -->
             <section class="interaction-section">
-                <div class="tabs-container">
-                    <button class="tab-btn active" data-tab="chat">
-                        <i class="fa-solid fa-comments"></i> 英语对话练习
-                    </button>
-                    <button class="tab-btn" data-tab="diary">
-                        <i class="fa-solid fa-book-open"></i> 每日日记生成
-                    </button>
-                </div>
+                <div class="carousel-control-center tech-corners">
+                    <div class="tech-corners-inner"></div>
+                    <div class="panel-header">
+                        <span class="panel-title"><i class="fa-solid fa-play-pause"></i> 轮播控制台</span>
+                        <span class="panel-subtitle">Carousel Control Center</span>
+                    </div>
 
-                <!-- Tab 1 Content: Chat Screen -->
-                <div class="tab-content active" id="tab-chat">
-                    <div class="chat-wrapper tech-corners">
-                        <div class="tech-corners-inner"></div>
-                        <!-- Chat Log Scroll View -->
-                        <div class="chat-log" id="chat-log">
-                            <!-- Welcome / Placeholder message -->
-                            <div class="message assistant welcome">
-                                <div class="message-avatar">
-                                    <i class="fa-solid fa-robot"></i>
-                                </div>
-                                <div class="message-bubble">
-                                    <p>Hello! I am your English diary assistant. Upload a photo that captures a moment from your day, and let's talk about it to build your daily diary! 📸</p>
-                                    <small class="msg-hint">系统回复将始终使用英文，以帮助您练习口语。您可以点击气泡进行翻译或朗读。</small>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- User speaking state feedback -->
-                        <div class="speech-status" id="speech-status">
-                            <span class="speech-dot"></span>
-                            <span id="speech-status-text">Listening...</span>
-                        </div>
-
-                        <!-- Chat Input Control Bar -->
-                        <div class="chat-input-bar">
-                            <button class="action-btn mic-btn" id="mic-btn" title="点击开始语音录入 (口语练习)">
-                                <i class="fa-solid fa-microphone"></i>
+                    <!-- Carousel Action Bar -->
+                    <div class="carousel-actions-bar">
+                        <button class="gradient-btn" id="btn-toggle-play" title="播放/暂停自动轮播">
+                            <i class="fa-solid fa-play" id="btn-play-icon"></i> <span id="btn-play-text">自动播放</span>
+                        </button>
+                        <div class="manual-controls">
+                            <button class="control-btn-small" id="btn-prev-image" title="上一张">
+                                <i class="fa-solid fa-chevron-left"></i>
                             </button>
-                            <div class="input-wrapper">
-                                <input type="text" id="chat-input" placeholder="输入中文或英文，聊聊照片里的故事..." autocomplete="off">
-                            </div>
-                            <button class="action-btn send-btn" id="send-btn" title="发送">
-                                <i class="fa-solid fa-paper-plane"></i>
-                            </button>
-                        </div>
-
-                        <!-- Generate Diary Floating Action Button -->
-                        <div class="generate-trigger-wrapper">
-                            <button class="gradient-btn" id="generate-diary-btn">
-                                <i class="fa-solid fa-sparkles"></i> 结束对话并生成今日日记
+                            <button class="control-btn-small" id="btn-next-image" title="下一张">
+                                <i class="fa-solid fa-chevron-right"></i>
                             </button>
                         </div>
                     </div>
-                </div>
 
-                <!-- Tab 2 Content: Diary Generator -->
-                <div class="tab-content" id="tab-diary">
-                    <div class="diary-wrapper">
-                        <!-- Current Diary Detail View -->
-                        <div class="diary-viewer tech-corners" id="current-diary-view">
-                            <div class="tech-corners-inner"></div>
-                            <div class="no-diary-state" id="no-diary-prompt">
-                                <i class="fa-regular fa-folder-open"></i>
-                                <h3>尚未生成今日日记</h3>
-                                <p>请在“英语对话练习”标签页中与 AI 助手完成对话后，点击生成今日日记。</p>
-                            </div>
-                            
-                            <div class="diary-card hidden" id="diary-card-content">
-                                <div class="diary-card-header">
-                                    <h2 id="diary-title">A Day of Memories</h2>
-                                    <div class="diary-meta">
-                                        <span id="diary-date"><i class="fa-regular fa-calendar-days"></i> May 30, 2026</span>
-                                        <span class="diary-words" id="diary-word-count">120 words</span>
-                                    </div>
-                                </div>
-
-                                <div class="diary-image-preview-box" id="diary-img-box">
-                                    <!-- Holds a static copy or thumbnail of the uploaded image -->
-                                    <img id="diary-preview-image" src="" alt="Today's Memory">
-                                </div>
-
-                                <div class="diary-body">
-                                    <div class="diary-section">
-                                        <h4><i class="fa-solid fa-feather-pointed"></i> English Diary</h4>
-                                        <p class="diary-text-en" id="diary-content-en">
-                                            Today was an exciting day...
-                                        </p>
-                                    </div>
-                                    <div class="diary-section translation-section">
-                                        <h4><i class="fa-solid fa-language"></i> 中文译文</h4>
-                                        <p class="diary-text-zh" id="diary-content-zh">
-                                            今天是非常兴奋的一天...
-                                        </p>
-                                    </div>
-                                    <div class="diary-section vocab-section">
-                                        <h4><i class="fa-solid fa-book-bookmark"></i> 今日词汇库 (Vocabulary Bank)</h4>
-                                        <div class="vocab-list" id="diary-vocab-list">
-                                            <!-- Dynamically added words -->
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="diary-actions">
-                                    <button class="outline-btn" id="export-diary-btn">
-                                        <i class="fa-solid fa-download"></i> 导出为图片
-                                    </button>
-                                    <button class="outline-btn" id="share-diary-btn">
-                                        <i class="fa-solid fa-share-nodes"></i> 复制文本
-                                    </button>
-                                </div>
+                    <!-- Slider Configuration Parameters -->
+                    <div class="carousel-settings-group">
+                        <div class="setting-row-small">
+                            <span><i class="fa-regular fa-clock"></i> 原图展示时间</span>
+                            <div class="slider-val-wrapper">
+                                <input type="range" id="slider-image-time" min="2" max="15" step="1" value="4">
+                                <span id="val-image-time">4s</span>
                             </div>
                         </div>
-
-                        <!-- Calendar / History List Panel -->
-                        <div class="diary-history tech-corners">
-                            <div class="tech-corners-inner"></div>
-                            <div class="section-title">
-                                <span><i class="fa-solid fa-history"></i> 记忆长河</span>
-                                <span class="badge" id="history-count">0 篇</span>
+                        <div class="setting-row-small">
+                            <span><i class="fa-solid fa-rotate-left"></i> 粒子态展示时间</span>
+                            <div class="slider-val-wrapper">
+                                <input type="range" id="slider-particle-time" min="2" max="15" step="1" value="5">
+                                <span id="val-particle-time">5s</span>
                             </div>
-                            <div class="history-grid" id="history-grid">
-                                <!-- Historic diary entries rendered here -->
+                        </div>
+                        <div class="setting-row-small">
+                            <span><i class="fa-solid fa-wand-magic-sparkles"></i> 渐变过渡时间</span>
+                            <div class="slider-val-wrapper">
+                                <input type="range" id="slider-fade-time" min="0.5" max="4.0" step="0.5" value="1.5">
+                                <span id="val-fade-time">1.5s</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Image List Section -->
+                    <div class="image-list-section">
+                        <div class="section-title">
+                            <span><i class="fa-regular fa-images"></i> 轮播画册列表</span>
+                            <span class="badge" id="image-count">0 张</span>
+                        </div>
+                        <div class="image-upload-trigger-row">
+                            <button class="outline-btn-small" onclick="document.getElementById('image-input').click()">
+                                <i class="fa-solid fa-plus"></i> 添加更多图片
+                            </button>
+                        </div>
+                        <div class="carousel-image-list" id="carousel-image-list">
+                            <!-- Image card items will be rendered dynamically -->
+                            <div class="no-images-placeholder" id="no-images-placeholder">
+                                <i class="fa-regular fa-image"></i>
+                                <p>尚未添加轮播图片</p>
+                                <small>请在左侧区域或上方按钮上传素材</small>
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
         </main>
-
-        <!-- Settings Modal (Glassmorphic Pop-up) -->
-        <div class="modal-overlay" id="settings-modal">
-            <div class="modal-container">
-                <div class="modal-header">
-                    <h3><i class="fa-solid fa-sliders"></i> 系统设置</h3>
-                    <button class="close-btn" id="close-settings"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="modal-body">
-                    <div class="setting-group">
-                        <label class="setting-label">AI 对话模式</label>
-                        <div class="toggle-switch-wrapper">
-                            <button class="mode-toggle-btn active" id="mode-mock" data-mode="mock">本地模拟模式</button>
-                            <button class="mode-toggle-btn" id="mode-gemini" data-mode="gemini">Gemini API 模式</button>
-                        </div>
-                        <p class="setting-desc">模拟模式开箱即用，内置常见引导对话。Gemini 模式需要填入您的 API Key 以调用真实 AI。</p>
-                    </div>
-
-                    <div id="gemini-key-section" class="setting-group hidden">
-                        <label for="gemini-key" class="setting-label">Gemini API Key</label>
-                        <div class="input-password-wrapper">
-                            <input type="password" id="gemini-key" placeholder="Enter your Gemini API Key here...">
-                            <button class="eye-btn" onclick="togglePasswordVisibility('gemini-key')">
-                                <i class="fa-solid fa-eye" id="eye-icon"></i>
-                            </button>
-                        </div>
-                        <p class="setting-desc">API Key 本地保存在浏览器中，不会上传至任何第三方服务器。</p>
-                    </div>
-
-                    <div class="setting-group">
-                        <label class="setting-label">语音朗读设置 (TTS)</label>
-                        <div class="setting-row">
-                            <span>选择语速 (Rate):</span>
-                            <input type="range" id="tts-rate" min="0.5" max="1.5" step="0.1" value="0.9">
-                            <span id="tts-rate-val">0.9</span>
-                        </div>
-                        <div class="setting-row">
-                            <span>朗读声线 (Voice):</span>
-                            <select id="tts-voice-select">
-                                <option value="default">默认英文女声</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="setting-group warning-zone">
-                        <label class="setting-label">数据维护</label>
-                        <button class="danger-btn" id="btn-clear-data">
-                            <i class="fa-solid fa-trash-can"></i> 清除所有历史数据
-                        </button>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="primary-btn" id="save-settings-btn">保存并应用</button>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Core App Scripts -->
-    <script src="api.js"></script>
-    <script src="particles.js"></script>
-    <script src="app.js"></script>
-    <script>
-        function togglePasswordVisibility(id) {
-            const input = document.getElementById(id);
-            const icon = document.getElementById('eye-icon');
-            if (input.type === 'password') {
-                input.type = 'text';
-                icon.classList.remove('fa-eye');
-                icon.classList.add('fa-eye-slash');
-            } else {
-                input.type = 'password';
-                icon.classList.remove('fa-eye-slash');
-                icon.classList.add('fa-eye');
-            }
-        }
-    </script>
 </body>
 </html>
